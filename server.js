@@ -14,6 +14,7 @@ const playlistsRoutes = require('./routes/playlists.routes');
 const streamRoutes = require('./routes/stream.routes');
 const searchRoutes = require('./routes/search.routes');
 const radioRoutes = require('./routes/radio.routes');
+const chartRoutes = require('./routes/chart.routes');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -60,6 +61,7 @@ app.use('/api/playlists', playlistsRoutes);
 app.use('/api/stream', streamRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api/radio', radioRoutes);
+app.use('/api/chart', chartRoutes);
 
 // 404 - Ruta no encontrada
 app.use((req, res) => {
