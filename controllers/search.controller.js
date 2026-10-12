@@ -1,5 +1,5 @@
 const { HttpError } = require('../utils/http');
-const { deezerGet, isPlayableTrack, mapTrack } = require('../services/deezer.service');
+const { deezerGet, isPlayableTrack, mapTrack, mapArtist, mapAlbum } = require('../services/deezer.service');
 const audius = require('../services/audius.service');
 const { prewarmAudioSources } = require('../services/audioProviders');
 
@@ -8,6 +8,8 @@ const { prewarmAudioSources } = require('../services/audioProviders');
 const AUDIUS_PREWARM_COUNT = 5;
 
 const RESULTS_PER_PROVIDER = 10;
+const ARTISTS_LIMIT = 6;
+const ALBUMS_LIMIT = 8;
 const PROVIDER_TIMEOUT_MS = 8000;
 const MAX_QUERY_LENGTH = 100;
 
@@ -23,6 +25,18 @@ async function searchDeezer(q) {
   const body = await deezerGet(`/search?${params}`);
 
   return (body.data || []).filter((track) => track.readable && isPlayableTrack(track)).map((track) => mapTrack(track));
+}
+
+async function searchDeezerArtists(q) {
+  const params = new URLSearchParams({ q, limit: String(ARTISTS_LIMIT) });
+  const body = await deezerGet(`/search/artist?${params}`);
+  return (body.data || []).map(mapArtist);
+}
+
+async function searchDeezerAlbums(q) {
+  const params = new URLSearchParams({ q, limit: String(ALBUMS_LIMIT) });
+  const body = await deezerGet(`/search/album?${params}`);
+  return (body.data || []).map(mapAlbum);
 }
 
 async function searchJamendo(q, clientId) {
@@ -74,41 +88,49 @@ async function search(req, res) {
     throw new HttpError(400, `El parámetro q es obligatorio (máximo ${MAX_QUERY_LENGTH} caracteres)`);
   }
 
-  // Deezer (previews de 30 s) y Audius (canciones completas) siempre; Jamendo si hay client_id.
-  // allSettled, no all: si un proveedor falla o tarda más de 8 s, se responde con los demás.
+  // Todas las consultas van en paralelo: canciones de Deezer (previews de 30 s), Audius (completas) y
+  // Jamendo si hay client_id, más artistas y álbumes de Deezer.
+  // allSettled, no all: si una falla o tarda más de 8 s, se responde con las demás.
   const jamendoClientId = process.env.JAMENDO_CLIENT_ID;
-  const providers = [
-    { name: 'deezer', run: () => searchDeezer(q) },
-    { name: 'audius', run: () => audius.searchTracks(q, RESULTS_PER_PROVIDER) },
+  const queries = [
+    { name: 'deezer', category: 'pistas', run: () => searchDeezer(q) },
+    { name: 'audius', category: 'pistas', run: () => audius.searchTracks(q, RESULTS_PER_PROVIDER) },
+    { name: 'deezer_artistas', category: 'artistas', run: () => searchDeezerArtists(q) },
+    { name: 'deezer_albumes', category: 'albumes', run: () => searchDeezerAlbums(q) },
   ];
-  if (jamendoClientId) providers.push({ name: 'jamendo', run: () => searchJamendo(q, jamendoClientId) });
+  if (jamendoClientId) queries.push({ name: 'jamendo', category: 'pistas', run: () => searchJamendo(q, jamendoClientId) });
 
-  const settled = await Promise.allSettled(providers.map((provider) => provider.run()));
+  const settled = await Promise.allSettled(queries.map((query) => query.run()));
 
   const proveedores = { jamendo: jamendoClientId ? undefined : 'omitido' };
-  const lists = [];
+  const results = { pistas: [], artistas: [], albumes: [] };
   settled.forEach((result, i) => {
-    const { name } = providers[i];
+    const { name, category } = queries[i];
     if (result.status === 'fulfilled') {
       proveedores[name] = 'ok';
-      lists.push(result.value);
+      results[category].push(result.value);
     } else {
       proveedores[name] = 'error';
       console.error(`[search] ${name}:`, result.reason?.message || result.reason);
     }
   });
 
-  // Solo es un fallo si no respondió ningún proveedor consultado
-  if (!lists.length) {
+  // Solo es un fallo si no respondió ninguna consulta
+  if (settled.every((result) => result.status === 'rejected')) {
     throw new HttpError(502, 'Los proveedores de música no están disponibles, intenta de nuevo más tarde');
   }
 
-  const data = interleave(lists);
-  res.status(200).json({ success: true, data, meta: { q, total: data.length, proveedores } });
+  const data = {
+    pistas: interleave(results.pistas),
+    artistas: results.artistas.flat(),
+    albumes: results.albumes.flat(),
+  };
+  const total = { pistas: data.pistas.length, artistas: data.artistas.length, albumes: data.albumes.length };
+  res.status(200).json({ success: true, data, meta: { q, total, proveedores } });
 
   // Tras responder: mientras el usuario elige, se resuelven las URLs de audio de Audius
   prewarmAudioSources(
-    data
+    data.pistas
       .filter((track) => track.id_externo.startsWith('audius:'))
       .slice(0, AUDIUS_PREWARM_COUNT)
       .map((track) => track.id_externo),

@@ -126,12 +126,15 @@ async function run() {
     });
 
     // ── Catálogo ────────────────────────────────────────────────────────────
-    await check('Catálogo', 'GET /search', async () => {
+    await check('Catálogo', 'GET /search (pistas, artistas y álbumes)', async () => {
       const r = await api('GET', '/search?q=daft%20punk');
       expectStatus(r, 200);
-      expect(r.body.data.length > 0 && r.body.data.every(hasTrackShape), 'resultados vacíos o con formato incorrecto');
-      firstTrack = r.body.data[0];
-      return `${r.body.data.length} resultados (${JSON.stringify(r.body.meta.proveedores)})`;
+      const { pistas, artistas, albumes } = r.body.data;
+      expect(pistas.length > 0 && pistas.every(hasTrackShape), 'pistas vacías o con formato incorrecto');
+      expect(artistas.length > 0 && artistas.every((a) => a.id?.startsWith('deezer:artist:') && a.nombre), 'artistas vacíos o incorrectos');
+      expect(albumes.length > 0 && albumes.every((a) => a.id?.startsWith('deezer:album:') && a.titulo), 'álbumes vacíos o incorrectos');
+      firstTrack = pistas.find((t) => t.id_externo.startsWith('deezer:')) ?? pistas[0];
+      return `${pistas.length} pistas, ${artistas.length} artistas, ${albumes.length} álbumes (${JSON.stringify(r.body.meta.proveedores)})`;
     });
     await check('Catálogo', 'GET /search sin q → 400', async () => {
       const r = await api('GET', '/search');
@@ -172,9 +175,9 @@ async function run() {
       const search = await api('GET', '/search?q=reggaeton');
       expectStatus(search, 200);
       expect(search.body.meta.proveedores.audius === 'ok', `Audius: ${search.body.meta.proveedores.audius}`);
-      const track = search.body.data.find((t) => t.id_externo.startsWith('audius:track:'));
+      const track = search.body.data.pistas.find((t) => t.id_externo.startsWith('audius:track:'));
       expect(track, 'la búsqueda no devolvió pistas de Audius');
-      expect(search.body.data.some((t) => t.id_externo.startsWith('deezer:track:')), 'faltan pistas de Deezer');
+      expect(search.body.data.pistas.some((t) => t.id_externo.startsWith('deezer:track:')), 'faltan pistas de Deezer');
 
       const path = `/stream/${encodeURIComponent(track.id_externo)}`;
       // Rango acotado: un `bytes=0-` descargaría la canción entera (las mezclas de Audius pesan >100 MB)
@@ -219,6 +222,32 @@ async function run() {
         expectStatus(await api('DELETE', `/playlists/${id}`), 200);
       }
       return 'creada (201), pista añadida (201), duplicado rechazado (409), quitada y borrada';
+    });
+
+    await check('Biblioteca', 'GET /home: artistas de tus favoritos, álbumes y pistas', async () => {
+      const fresh = await api('GET', '/home');
+      expectStatus(fresh, 200);
+      expect(fresh.body.meta.artistas_origen === 'populares', `usuario nuevo con origen "${fresh.body.meta.artistas_origen}"`);
+      expect(fresh.body.data.artistas.length > 0, 'sin artistas sugeridos');
+
+      const favorite = chartTrack ?? firstTrack;
+      expectStatus(await api('POST', '/favorites', { body: favorite }), 201);
+      try {
+        const personal = await api('GET', '/home');
+        expectStatus(personal, 200);
+        const { artistas, albumes, pistas } = personal.body.data;
+        expect(personal.body.meta.artistas_origen !== 'populares', 'no usó los favoritos');
+        expect(artistas[0]?.id === favorite.artista_id, `el primer artista no es el de tu favorito (${favorite.artista})`);
+        expect(albumes.length > 0 && albumes.every((a) => a.id?.startsWith('deezer:album:')), 'álbumes vacíos o incorrectos');
+        expect(pistas.length > 0 && pistas.every(hasTrackShape), 'pistas vacías o incorrectas');
+
+        const again = await api('GET', '/home');
+        const sameAlbums = albumes.map((a) => a.id).join() === again.body.data.albumes.map((a) => a.id).join();
+        expect(!sameAlbums, 'los álbumes no cambian entre recargas');
+        return `nuevo → ${fresh.body.data.artistas.length} populares; con favorito → "${artistas[0].nombre}" primero (${personal.body.meta.artistas_origen}), ${albumes.length} álbumes que cambian, ${pistas.length} pistas`;
+      } finally {
+        await api('DELETE', `/favorites/${encodeURIComponent(favorite.id_externo)}`);
+      }
     });
 
     // ── Páginas de artista y álbum (si el servidor ya las tiene) ─────────────

@@ -20,6 +20,7 @@ const chartRoutes = require('./routes/chart.routes');
 const artistRoutes = require('./routes/artist.routes');
 const albumRoutes = require('./routes/album.routes');
 const adminRoutes = require('./routes/admin.routes');
+const homeRoutes = require('./routes/home.routes');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -70,6 +71,7 @@ app.use('/api/chart', chartRoutes);
 app.use('/api/artists', artistRoutes);
 app.use('/api/albums', albumRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/home', homeRoutes);
 
 // 404 - Ruta no encontrada
 app.use((req, res) => {

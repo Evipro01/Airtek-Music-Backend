@@ -49,6 +49,31 @@ function mapTrack(track, album = track.album) {
 const RECORD_TYPES = { album: 'Álbum', single: 'Sencillo', ep: 'EP', compile: 'Recopilatorio' };
 const recordTypeLabel = (recordType) => RECORD_TYPES[recordType] ?? 'Álbum';
 
+// Resultado de /search/artist → tarjeta de artista (enlaza a /artist/:id)
+function mapArtist(artist) {
+  return {
+    id: prefixedId('artist', artist.id),
+    nombre: artist.name,
+    imagen_url: artist.picture_medium || artist.picture_big || null,
+    fans: Number.isFinite(artist.nb_fan) ? artist.nb_fan : null,
+    num_albumes: Number.isFinite(artist.nb_album) ? artist.nb_album : null,
+  };
+}
+
+// Resultado de /search/album → tarjeta de álbum (enlaza a /album/:id)
+function mapAlbum(album) {
+  return {
+    id: prefixedId('album', album.id),
+    titulo: album.title,
+    portada_url: album.cover_medium || album.cover_big || null,
+    artista: album.artist?.name ?? 'Desconocido',
+    artista_id: prefixedId('artist', album.artist?.id),
+    tipo: recordTypeLabel(album.record_type),
+    num_pistas: Number.isFinite(album.nb_tracks) ? album.nb_tracks : null,
+    explicita: Boolean(album.explicit_lyrics),
+  };
+}
+
 /**
  * Acepta el id con prefijo que usa el frontend ("deezer:artist:27") o solo el número ("27").
  */
@@ -72,4 +97,14 @@ function createCache({ ttlMs, maxEntries = 500 }) {
   };
 }
 
-module.exports = { deezerGet, isPlayableTrack, mapTrack, prefixedId, recordTypeLabel, parseDeezerId, createCache };
+module.exports = {
+  deezerGet,
+  isPlayableTrack,
+  mapTrack,
+  mapArtist,
+  mapAlbum,
+  prefixedId,
+  recordTypeLabel,
+  parseDeezerId,
+  createCache,
+};
