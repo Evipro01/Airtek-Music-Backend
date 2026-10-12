@@ -2,6 +2,10 @@ const { createSupabaseClient, baseCookieOptions } = require('../services/supabas
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_PASSWORD_LENGTH = 6;
+// Contraseñas nuevas (registro). El login sigue aceptando las de cuentas creadas con la regla anterior.
+const MIN_NEW_PASSWORD_LENGTH = 8;
+const NEW_PASSWORD_ERROR = 'La contraseña debe tener al menos 8 caracteres y un número';
+const DUPLICATE_EMAIL_ERROR = 'Este correo ya está registrado en Airtek Music';
 // Mismas reglas que los CHECK de public.usuarios (supabase/migrations/..._esquema_inicial.sql)
 const USERNAME_REGEX = /^[a-z0-9_]{4,30}$/;
 const MAX_ALIAS_LENGTH = 50;
@@ -17,6 +21,20 @@ function validateCredentials(body = {}) {
   }
   return null;
 }
+
+function validateNewPassword(password) {
+  if (password.length < MIN_NEW_PASSWORD_LENGTH || !/\d/.test(password)) return NEW_PASSWORD_ERROR;
+  return null;
+}
+
+// Supabase Auth señala el correo repetido de dos formas según la configuración del proyecto:
+//  - Sin confirmación de email: error "User already registered" (code user_already_exists, HTTP 422).
+//  - Con confirmación (nuestro caso): no hay error, pero el usuario devuelto no tiene identidades.
+function isDuplicateEmailError(error) {
+  return error.code === 'user_already_exists' || error.code === 'email_exists' || /already registered/i.test(error.message);
+}
+
+const isExistingUserResponse = (user) => Array.isArray(user?.identities) && user.identities.length === 0;
 
 // El trigger de auth.users exige username en la metadata; si no llega alias, usa el username
 function validateProfile(body = {}) {
@@ -54,7 +72,8 @@ function publicUser(user) {
 }
 
 async function register(req, res) {
-  const validationError = validateCredentials(req.body) || validateProfile(req.body);
+  const validationError =
+    validateCredentials(req.body) || validateNewPassword(req.body.password) || validateProfile(req.body);
   if (validationError) {
     return res.status(400).json({ success: false, error: validationError });
   }
@@ -69,6 +88,10 @@ async function register(req, res) {
       options: { data: { username: username.trim(), alias: alias?.trim() || username.trim() } },
     });
 
+    if (error && isDuplicateEmailError(error)) {
+      return res.status(409).json({ success: false, error: DUPLICATE_EMAIL_ERROR });
+    }
+
     if (error) {
       // Si el trigger rechaza la fila (p. ej. username repetido) Supabase solo devuelve este mensaje genérico
       if (/database error saving new user/i.test(error.message)) {
@@ -79,6 +102,10 @@ async function register(req, res) {
       }
       if (isServerError(error)) return sendServerError(res, error);
       return res.status(400).json({ success: false, error: error.message });
+    }
+
+    if (isExistingUserResponse(data.user)) {
+      return res.status(409).json({ success: false, error: DUPLICATE_EMAIL_ERROR });
     }
 
     // Si Supabase exige confirmación de email, no hay sesión todavía

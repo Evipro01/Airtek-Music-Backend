@@ -1,4 +1,11 @@
 const { HttpError } = require('../utils/http');
+const { deezerGet, isPlayableTrack, mapTrack } = require('../services/deezer.service');
+const audius = require('../services/audius.service');
+const { prewarmAudioSources } = require('../services/audioProviders');
+
+// Pistas de Audius cuya URL de audio se pre-resuelve al buscar (solo Audius: Deezer limita
+// a ~50 peticiones cada 5 s por IP y su resolución ya es rápida)
+const AUDIUS_PREWARM_COUNT = 5;
 
 const RESULTS_PER_PROVIDER = 10;
 const PROVIDER_TIMEOUT_MS = 8000;
@@ -12,21 +19,10 @@ async function fetchJson(url) {
 
 // Solo pistas con audio reproducible: si no, /api/stream devolvería 404 al darle play
 async function searchDeezer(q) {
-  const url = new URL('https://api.deezer.com/search');
-  url.search = new URLSearchParams({ q, limit: String(RESULTS_PER_PROVIDER) });
+  const params = new URLSearchParams({ q, limit: String(RESULTS_PER_PROVIDER) });
+  const body = await deezerGet(`/search?${params}`);
 
-  const body = await fetchJson(url);
-  // Deezer devuelve sus errores con HTTP 200 y un objeto `error`
-  if (body.error) throw new Error(`Deezer: ${body.error.message}`);
-
-  return (body.data || [])
-    .filter((track) => track.type === 'track' && track.readable && track.preview)
-    .map((track) => ({
-      id_externo: `deezer:track:${track.id}`,
-      titulo: track.title,
-      artista: track.artist?.name ?? 'Desconocido',
-      portada_url: track.album?.cover_medium || null,
-    }));
+  return (body.data || []).filter((track) => track.readable && isPlayableTrack(track)).map((track) => mapTrack(track));
 }
 
 async function searchJamendo(q, clientId) {
@@ -51,6 +47,12 @@ async function searchJamendo(q, clientId) {
       titulo: track.name,
       artista: track.artist_name || 'Desconocido',
       portada_url: track.album_image || track.image || null,
+      // Las páginas de artista y álbum solo existen para Deezer: sin id no se enlazan
+      artista_id: null,
+      album_id: null,
+      album: track.album_name || null,
+      duracion: Number.isFinite(Number(track.duration)) ? Number(track.duration) : null,
+      explicita: false,
     }));
 }
 
@@ -72,8 +74,13 @@ async function search(req, res) {
     throw new HttpError(400, `El parámetro q es obligatorio (máximo ${MAX_QUERY_LENGTH} caracteres)`);
   }
 
+  // Deezer (previews de 30 s) y Audius (canciones completas) siempre; Jamendo si hay client_id.
+  // allSettled, no all: si un proveedor falla o tarda más de 8 s, se responde con los demás.
   const jamendoClientId = process.env.JAMENDO_CLIENT_ID;
-  const providers = [{ name: 'deezer', run: () => searchDeezer(q) }];
+  const providers = [
+    { name: 'deezer', run: () => searchDeezer(q) },
+    { name: 'audius', run: () => audius.searchTracks(q, RESULTS_PER_PROVIDER) },
+  ];
   if (jamendoClientId) providers.push({ name: 'jamendo', run: () => searchJamendo(q, jamendoClientId) });
 
   const settled = await Promise.allSettled(providers.map((provider) => provider.run()));
@@ -98,6 +105,14 @@ async function search(req, res) {
 
   const data = interleave(lists);
   res.status(200).json({ success: true, data, meta: { q, total: data.length, proveedores } });
+
+  // Tras responder: mientras el usuario elige, se resuelven las URLs de audio de Audius
+  prewarmAudioSources(
+    data
+      .filter((track) => track.id_externo.startsWith('audius:'))
+      .slice(0, AUDIUS_PREWARM_COUNT)
+      .map((track) => track.id_externo),
+  );
 }
 
 module.exports = { search };

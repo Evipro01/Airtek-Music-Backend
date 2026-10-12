@@ -1,4 +1,5 @@
 const { HttpError } = require('../utils/http');
+const audius = require('./audius.service');
 
 /**
  * Resuelve un `id_externo` ("<proveedor>:track:<id>") a la URL de audio del proveedor.
@@ -8,10 +9,21 @@ const { HttpError } = require('../utils/http');
 const CACHE_MAX_ENTRIES = 1000;
 const cache = new Map();
 
+const NUMERIC_ID = /^\d{1,20}$/;
+const hostMatches = (pattern) => (hostname) => pattern.test(hostname);
+
+// Nombre de dominio público: ni IPs literales, ni localhost, ni nombres de red interna
+function isPublicHostname(hostname) {
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname) || hostname.includes(':') || hostname.startsWith('[')) return false;
+  if (!hostname.includes('.')) return false;
+  return !/(^|\.)(localhost|local|internal|intranet|home\.arpa)$/i.test(hostname);
+}
+
 const providers = {
   // Pistas completas con licencia Creative Commons
   jamendo: {
-    allowedHosts: /(^|\.)jamendo\.com$/,
+    idPattern: NUMERIC_ID,
+    isAllowedHost: hostMatches(/(^|\.)jamendo\.com$/),
     ttlMs: 6 * 60 * 60 * 1000,
     preview: false,
     async resolve(id) {
@@ -37,7 +49,8 @@ const providers = {
 
   // La API pública de Deezer solo expone previews de 30 s (URLs firmadas que caducan)
   deezer: {
-    allowedHosts: /(^|\.)dzcdn\.net$/,
+    idPattern: NUMERIC_ID,
+    isAllowedHost: hostMatches(/(^|\.)dzcdn\.net$/),
     ttlMs: 10 * 60 * 1000,
     preview: true,
     async resolve(id) {
@@ -50,6 +63,18 @@ const providers = {
       return body.preview;
     },
   },
+
+  // Canciones completas de la API oficial de Audius. El audio lo sirven nodos de contenido de distintos
+  // operadores (creatornode.audius.co, *.figment.io…), así que no hay lista fija de dominios: se exige
+  // https y un dominio público. La URL siempre la entrega la API de Audius, nunca el cliente.
+  audius: {
+    idPattern: /^[A-Za-z0-9]{1,32}$/,
+    isAllowedHost: isPublicHostname,
+    // URL firmada: si caduca antes, el proxy la renueva y reintenta (stream.controller)
+    ttlMs: 30 * 60 * 1000,
+    preview: false,
+    resolve: (id) => audius.resolveStreamUrl(id),
+  },
 };
 
 function parseTrackId(trackId) {
@@ -58,8 +83,8 @@ function parseTrackId(trackId) {
   if (!providers[provider]) {
     throw new HttpError(400, `Proveedor de audio no soportado. Usa: ${Object.keys(providers).join(', ')}`);
   }
-  if (type !== 'track' || !/^\d{1,20}$/.test(id)) {
-    throw new HttpError(400, `Formato esperado: "${provider}:track:<id numérico>"`);
+  if (type !== 'track' || !providers[provider].idPattern.test(id ?? '')) {
+    throw new HttpError(400, `Formato esperado: "${provider}:track:<id>"`);
   }
   return { provider, id };
 }
@@ -72,15 +97,15 @@ function assertAllowedUrl(rawUrl, provider) {
   } catch {
     throw new HttpError(502, 'El proveedor devolvió una URL de audio inválida');
   }
-  if (url.protocol !== 'https:' || !providers[provider].allowedHosts.test(url.hostname)) {
+  if (url.protocol !== 'https:' || !providers[provider].isAllowedHost(url.hostname)) {
     throw new HttpError(502, 'El proveedor devolvió una URL de audio no permitida');
   }
 }
 
-async function resolveAudioSource(trackId) {
-  const cached = cache.get(trackId);
-  if (cached && cached.expiresAt > Date.now()) return cached;
+// Resoluciones en curso: si llega un play mientras se pre-resuelve esa pista, espera a la misma petición
+const inFlight = new Map();
 
+async function loadAudioSource(trackId) {
   const { provider, id } = parseTrackId(trackId);
   const url = await providers[provider].resolve(id);
   assertAllowedUrl(url, provider);
@@ -98,8 +123,29 @@ async function resolveAudioSource(trackId) {
   return source;
 }
 
+async function resolveAudioSource(trackId) {
+  const cached = cache.get(trackId);
+  if (cached && cached.expiresAt > Date.now()) return cached;
+
+  if (!inFlight.has(trackId)) {
+    inFlight.set(trackId, loadAudioSource(trackId).finally(() => inFlight.delete(trackId)));
+  }
+  return inFlight.get(trackId);
+}
+
+/**
+ * Resuelve en segundo plano las URLs de audio de pistas que probablemente se van a reproducir
+ * (p. ej. los primeros resultados de una búsqueda): el primer play ya no espera a la API del proveedor.
+ * Nunca lanza: si falla, el play la resolverá normalmente.
+ */
+function prewarmAudioSources(trackIds) {
+  for (const trackId of trackIds) {
+    resolveAudioSource(trackId).catch(() => {});
+  }
+}
+
 function invalidateAudioSource(trackId) {
   cache.delete(trackId);
 }
 
-module.exports = { resolveAudioSource, invalidateAudioSource, assertAllowedUrl };
+module.exports = { resolveAudioSource, prewarmAudioSources, invalidateAudioSource, assertAllowedUrl };

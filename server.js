@@ -1,4 +1,6 @@
 require('dotenv').config({ quiet: true });
+// Antes que cualquier fetch: conexiones keep-alive largas hacia Deezer, Audius y Supabase
+require('./services/httpAgent');
 
 const express = require('express');
 const helmet = require('helmet');
@@ -15,6 +17,9 @@ const streamRoutes = require('./routes/stream.routes');
 const searchRoutes = require('./routes/search.routes');
 const radioRoutes = require('./routes/radio.routes');
 const chartRoutes = require('./routes/chart.routes');
+const artistRoutes = require('./routes/artist.routes');
+const albumRoutes = require('./routes/album.routes');
+const adminRoutes = require('./routes/admin.routes');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -62,6 +67,9 @@ app.use('/api/stream', streamRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api/radio', radioRoutes);
 app.use('/api/chart', chartRoutes);
+app.use('/api/artists', artistRoutes);
+app.use('/api/albums', albumRoutes);
+app.use('/api/admin', adminRoutes);
 
 // 404 - Ruta no encontrada
 app.use((req, res) => {
