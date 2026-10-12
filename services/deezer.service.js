@@ -3,10 +3,11 @@ const { HttpError } = require('../utils/http');
 const DEEZER_API_URL = 'https://api.deezer.com';
 const TIMEOUT_MS = 8000;
 const DEEZER_NO_DATA = 800; // Código de Deezer para "el recurso no existe"
+const DEEZER_QUOTA_EXCEEDED = 4; // "Quota limit exceeded": ~50 peticiones cada 5 s por IP
 
 /**
  * GET a la API pública de Deezer. Deezer devuelve sus errores con HTTP 200 y un objeto `error`:
- * "no data" se traduce a 404 y el resto a 502 (fallo del proveedor).
+ * "no data" se traduce a 404, el límite de cuota (código 4 o HTTP 429) a 429 y el resto a 502.
  */
 async function deezerGet(path) {
   let response;
@@ -15,10 +16,12 @@ async function deezerGet(path) {
   } catch {
     throw new HttpError(502, 'No se pudo conectar con Deezer');
   }
+  if (response.status === 429) throw new HttpError(429, 'Deezer: límite de peticiones alcanzado');
   if (!response.ok) throw new HttpError(502, 'Deezer no respondió correctamente');
 
   const body = await response.json();
   if (body.error?.code === DEEZER_NO_DATA) throw new HttpError(404, 'No se encontró en Deezer');
+  if (body.error?.code === DEEZER_QUOTA_EXCEEDED) throw new HttpError(429, 'Deezer: límite de peticiones alcanzado');
   if (body.error) throw new HttpError(502, `Deezer rechazó la petición: ${body.error.message}`);
   return body;
 }
