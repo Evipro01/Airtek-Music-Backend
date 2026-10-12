@@ -11,7 +11,7 @@ require('dotenv').config({ quiet: true });
 const { createClient } = require('@supabase/supabase-js');
 
 const BASE_URL = (process.env.SMOKE_BASE_URL || `http://localhost:${process.env.PORT || 3000}`).replace(/\/$/, '') + '/api';
-const ORIGIN = process.env.CORS_ORIGIN || 'http://localhost:5173';
+const ORIGIN = (process.env.FRONTEND_URL || process.env.CORS_ORIGIN || 'http://localhost:5173').split(',')[0].trim();
 const TEST_PASSWORD = 'Prueba1234';
 
 const admin = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {

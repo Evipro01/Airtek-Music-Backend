@@ -22,15 +22,31 @@ const albumRoutes = require('./routes/album.routes');
 const adminRoutes = require('./routes/admin.routes');
 const homeRoutes = require('./routes/home.routes');
 
+const { isProduction } = require('./utils/cookies');
+
 const app = express();
 const PORT = process.env.PORT || 3000;
-const CORS_ORIGIN = process.env.CORS_ORIGIN || 'http://localhost:5173';
+
+// Orígenes del frontend autorizados (CORS con credenciales: nunca "*").
+// FRONTEND_URL admite varias URLs separadas por comas (p. ej. producción y previews).
+// CORS_ORIGIN se mantiene como alias por compatibilidad con los .env existentes.
+const ALLOWED_ORIGINS = (process.env.FRONTEND_URL || process.env.CORS_ORIGIN || 'http://localhost:5173')
+  .split(',')
+  .map((origin) => origin.trim().replace(/\/$/, ''))
+  .filter(Boolean);
+
+// Railway/Render ponen un balanceador delante (TLS termina en él): sin `trust proxy` Express cree que la
+// conexión es HTTP, no envía cookies `Secure`, y el límite de peticiones ve a todos con la IP del proxy.
+// Solo en producción: en local no hay proxy y confiar en X-Forwarded-For permitiría falsear la IP.
+if (isProduction || process.env.TRUST_PROXY) {
+  app.set('trust proxy', Number(process.env.TRUST_PROXY) || 1);
+}
 
 // Seguridad
 app.use(helmet());
 app.use(
   cors({
-    origin: CORS_ORIGIN,
+    origin: ALLOWED_ORIGINS,
     credentials: true,
   })
 );

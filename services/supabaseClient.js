@@ -1,11 +1,6 @@
 const { createServerClient } = require('@supabase/ssr');
-
-const baseCookieOptions = {
-  httpOnly: true,
-  sameSite: 'lax',
-  secure: process.env.NODE_ENV === 'production',
-  path: '/',
-};
+// HttpOnly siempre; en producción SameSite=None + Secure (frontend y backend en dominios distintos)
+const { baseCookieOptions } = require('../utils/cookies');
 
 // Supabase entrega maxAge en segundos (formato de la cabecera Set-Cookie),
 // pero res.cookie() de Express lo espera en milisegundos.
