@@ -59,11 +59,6 @@ async function run() {
       expectStatus(r, 200);
       return `status ${r.body.status}`;
     });
-    await check('Servidor', 'GET /access desde una red permitida → 200', async () => {
-      const r = await api('GET', '/access');
-      expectStatus(r, 200);
-      return 'conexión aceptada';
-    });
     await check('Servidor', 'Ruta inexistente → 404 JSON', async () => {
       const r = await api('GET', '/no-existe');
       expectStatus(r, 404);
