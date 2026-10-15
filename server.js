@@ -5,11 +5,9 @@ require('./services/httpAgent');
 const express = require('express');
 const helmet = require('helmet');
 const cors = require('cors');
-const cookieParser = require('cookie-parser');
 const { rateLimit } = require('express-rate-limit');
 const { HttpError } = require('./utils/http');
 
-const sessionRoutes = require('./routes/session.routes');
 const tracksRoutes = require('./routes/tracks.routes');
 const streamRoutes = require('./routes/stream.routes');
 const searchRoutes = require('./routes/search.routes');
@@ -20,9 +18,9 @@ const albumRoutes = require('./routes/album.routes');
 const adminRoutes = require('./routes/admin.routes');
 const homeRoutes = require('./routes/home.routes');
 
-const { isProduction } = require('./utils/cookies');
 
 const app = express();
+const isProduction = process.env.NODE_ENV === 'production';
 const PORT = process.env.PORT || 3000;
 
 // Orígenes del frontend autorizados (CORS con credenciales: nunca "*").
@@ -33,8 +31,8 @@ const ALLOWED_ORIGINS = (process.env.FRONTEND_URL || process.env.CORS_ORIGIN || 
   .map((origin) => origin.trim().replace(/\/$/, ''))
   .filter(Boolean);
 
-// Railway/Render ponen un balanceador delante (TLS termina en él): sin `trust proxy` Express cree que la
-// conexión es HTTP, no envía cookies `Secure`, y el límite de peticiones ve a todos con la IP del proxy.
+// Railway/Render ponen un balanceador delante: sin `trust proxy` el límite de peticiones ve a todos con la
+// IP del proxy. Si además el frontend reenvía /api desde Vercel, hay dos saltos: TRUST_PROXY=2.
 // Solo en producción: en local no hay proxy y confiar en X-Forwarded-For permitiría falsear la IP.
 if (isProduction || process.env.TRUST_PROXY) {
   app.set('trust proxy', Number(process.env.TRUST_PROXY) || 1);
@@ -62,7 +60,6 @@ app.use(
 
 // Parsers
 app.use(express.json({ limit: '100kb' }));
-app.use(cookieParser());
 
 // Rutas
 app.get('/api/health', (req, res) => {
@@ -74,7 +71,6 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-app.use('/api/session', sessionRoutes);
 app.use('/api/tracks', tracksRoutes);
 app.use('/api/stream', streamRoutes);
 app.use('/api/search', searchRoutes);

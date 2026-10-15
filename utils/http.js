@@ -9,7 +9,6 @@ class HttpError extends Error {
 
 // Códigos de PostgreSQL que devuelve PostgREST
 const PG = {
-  UNIQUE_VIOLATION: '23505',
   INSUFFICIENT_PRIVILEGE: '42501',
 };
 

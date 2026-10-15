@@ -190,14 +190,33 @@ async function run() {
     });
 
     // ── Administración ──────────────────────────────────────────────────────
-    await check('Admin', 'GET /admin/stats sin sesión → 401', async () => {
-      const r = await api('GET', '/admin/stats');
-      expectStatus(r, 401);
-      return r.body.error;
-    });
-    await check('Admin', 'POST /tracks sin sesión → 401', async () => {
+    const adminKey = process.env.ADMIN_API_KEY ?? '';
+    if (adminKey.length >= 16) {
+      await check('Admin', 'GET /admin/stats sin clave → 401', async () => {
+        const r = await api('GET', '/admin/stats');
+        expectStatus(r, 401);
+        return r.body.error;
+      });
+      await check('Admin', 'GET /admin/stats con clave incorrecta → 401', async () => {
+        const r = await api('GET', '/admin/stats', { headers: { 'X-Admin-Key': `${adminKey}x` } });
+        expectStatus(r, 401);
+        return r.body.error;
+      });
+      await check('Admin', 'GET /admin/stats con la clave → 200', async () => {
+        const r = await api('GET', '/admin/stats', { headers: { 'X-Admin-Key': adminKey } });
+        expectStatus(r, 200);
+        return `${r.body.pistas} pistas, ${r.body.favoritos} favoritos`;
+      });
+    } else {
+      await check('Admin', 'Sin ADMIN_API_KEY el panel está desactivado → 503', async () => {
+        const r = await api('GET', '/admin/stats');
+        expectStatus(r, 503);
+        return r.body.error;
+      });
+    }
+    await check('Admin', 'POST /tracks ya no existe → 404', async () => {
       const r = await api('POST', '/tracks', { body: {} });
-      expectStatus(r, 401);
+      expectStatus(r, 404);
       return r.body.error;
     });
   }

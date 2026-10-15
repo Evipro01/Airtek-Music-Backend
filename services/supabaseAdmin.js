@@ -1,9 +1,9 @@
 const { createClient } = require('@supabase/supabase-js');
 
 /**
- * Único cliente de Supabase del backend (service_role, se salta RLS). Sin login no hay sesiones de
- * Supabase Auth: el navegador nunca habla con la base de datos y el backend es quien filtra por
- * abonado. Toda consulta de datos personales debe filtrar por req.user.id (ver requireSession).
+ * Único cliente de Supabase del backend (service_role, se salta RLS). El navegador nunca habla con la
+ * base de datos: la biblioteca de cada oyente vive en su navegador y aquí solo se leen el catálogo
+ * de pistas y las cifras del panel de administración.
  */
 const supabaseAdmin = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },

@@ -58,7 +58,7 @@ async function getStats(req, res) {
 async function listUsers(req, res) {
   const result = await supabaseAdmin
     .from('usuarios')
-    .select('id, abonado_id, username, alias, rol, estado_cuenta, fecha_creacion', { count: 'exact' })
+    .select('id, email, username, alias, rol, estado_cuenta, fecha_creacion', { count: 'exact' })
     .order('fecha_creacion', { ascending: false })
     .limit(MAX_USERS);
   assertQuery(result);
