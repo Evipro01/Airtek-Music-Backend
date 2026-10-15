@@ -7,6 +7,7 @@ const helmet = require('helmet');
 const cors = require('cors');
 const { rateLimit } = require('express-rate-limit');
 const { HttpError } = require('./utils/http');
+const requireAirtekNetwork = require('./middlewares/requireAirtekNetwork');
 
 const tracksRoutes = require('./routes/tracks.routes');
 const streamRoutes = require('./routes/stream.routes');
@@ -31,8 +32,9 @@ const ALLOWED_ORIGINS = (process.env.FRONTEND_URL || process.env.CORS_ORIGIN || 
   .map((origin) => origin.trim().replace(/\/$/, ''))
   .filter(Boolean);
 
-// Railway/Render ponen un balanceador delante: sin `trust proxy` el límite de peticiones ve a todos con la
-// IP del proxy. Si además el frontend reenvía /api desde Vercel, hay dos saltos: TRUST_PROXY=2.
+// Railway/Render ponen un balanceador delante: sin `trust proxy` el límite de peticiones y la comprobación de
+// la red de Airtek ven la IP del proxy. Si además el frontend reenvía /api desde Vercel, hay dos saltos:
+// TRUST_PROXY=2. Un valor mayor que los saltos reales permitiría falsear la IP con X-Forwarded-For.
 // Solo en producción: en local no hay proxy y confiar en X-Forwarded-For permitiría falsear la IP.
 if (isProduction || process.env.TRUST_PROXY) {
   app.set('trust proxy', Number(process.env.TRUST_PROXY) || 1);
@@ -69,6 +71,15 @@ app.get('/api/health', (req, res) => {
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
   });
+});
+
+// Todo lo demás solo desde la red de Airtek (el health queda abierto para la monitorización)
+app.use('/api', requireAirtekNetwork);
+
+// El frontend lo llama al abrir la app para saber si la conexión es de Airtek
+app.get('/api/access', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.status(200).json({ success: true });
 });
 
 app.use('/api/tracks', tracksRoutes);
