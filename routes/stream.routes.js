@@ -1,6 +1,5 @@
 const express = require('express');
 const { rateLimit } = require('express-rate-limit');
-const requireAuth = require('../middlewares/requireAuth');
 const { streamTrack } = require('../controllers/stream.controller');
 
 const router = express.Router();
@@ -14,8 +13,8 @@ const streamLimiter = rateLimit({
   message: { success: false, error: 'Demasiadas peticiones de audio, intenta de nuevo más tarde.' },
 });
 
+// Público, como el catálogo: el proxy solo acepta las fuentes y dominios de services/audioProviders.js
 router.use(streamLimiter);
-router.use(requireAuth);
 
 // <audio src> carga desde otro origen (localhost:5173 → :3000): helmet lo bloquearía con same-origin
 router.use((req, res, next) => {

@@ -6,6 +6,7 @@ const ALBUMS_LIMIT = 10;
 const ARTISTS_MIN = 6; // si hay menos artistas favoritos, se completa con populares
 const ARTISTS_MAX = 10;
 const FAVORITES_SCANNED = 10; // favoritos más recientes de los que se sacan artistas
+const DEEZER_TRACK_ID = /^deezer:track:(\d{1,20})$/;
 
 // El artista de una pista nunca cambia: se cachea un día para no consultar Deezer en cada visita
 const trackArtistCache = createCache({ ttlMs: 24 * 60 * 60 * 1000, maxEntries: 5000 });
@@ -17,23 +18,24 @@ const toArtist = (artist) => ({
 });
 
 /**
- * Artistas de las canciones favoritas del usuario, de la más reciente a la más antigua.
- * La tabla `pistas` no guarda el artista_id, así que se consulta la pista en Deezer (/track/:id).
- * Las pistas de Audius o Jamendo no tienen página de artista y se omiten.
+ * Ids numéricos de Deezer de ?favoritos=deezer:track:1,deezer:track:2 (de la más reciente a la más antigua).
+ * Los favoritos se guardan en el navegador del oyente (IndexedDB), por eso los envía el frontend.
+ * Las pistas de Audius o Jamendo no tienen página de artista y se omiten; lo que no tenga el formato, también.
  */
-async function favoriteArtists(supabase, userId) {
-  const { data, error } = await supabase
-    .from('favoritos')
-    .select('pista_id')
-    .eq('usuario_id', userId)
-    .order('fecha_agregado', { ascending: false })
-    .limit(FAVORITES_SCANNED);
-  if (error) throw error;
-
-  const deezerIds = data
-    .map(({ pista_id }) => /^deezer:track:(\d+)$/.exec(pista_id)?.[1])
+function favoriteDeezerIds(query) {
+  const raw = typeof query.favoritos === 'string' ? query.favoritos : '';
+  const ids = raw
+    .split(',')
+    .map((id) => DEEZER_TRACK_ID.exec(id.trim())?.[1])
     .filter(Boolean);
+  return [...new Set(ids)].slice(0, FAVORITES_SCANNED);
+}
 
+/**
+ * Artistas de las canciones favoritas, en el mismo orden.
+ * Se consulta cada pista en Deezer (/track/:id) para saber su artista; el resultado se cachea un día.
+ */
+async function favoriteArtists(deezerIds) {
   const lookups = await Promise.allSettled(
     deezerIds.map((id) => trackArtistCache(id, async () => (await deezerGet(`/track/${id}`)).artist)),
   );
@@ -76,7 +78,7 @@ async function recommendedAlbums() {
  */
 async function getHome(req, res) {
   const [favorites, albums, tracks] = await Promise.allSettled([
-    favoriteArtists(req.supabase, req.user.id),
+    favoriteArtists(favoriteDeezerIds(req.query)),
     recommendedAlbums(),
     getLatinChartTracks().then((list) => shuffle(list).slice(0, TRACKS_LIMIT)),
   ]);

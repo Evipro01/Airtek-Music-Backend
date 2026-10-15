@@ -9,10 +9,8 @@ const cookieParser = require('cookie-parser');
 const { rateLimit } = require('express-rate-limit');
 const { HttpError } = require('./utils/http');
 
-const authRoutes = require('./routes/auth.routes');
+const sessionRoutes = require('./routes/session.routes');
 const tracksRoutes = require('./routes/tracks.routes');
-const favoritesRoutes = require('./routes/favorites.routes');
-const playlistsRoutes = require('./routes/playlists.routes');
 const streamRoutes = require('./routes/stream.routes');
 const searchRoutes = require('./routes/search.routes');
 const radioRoutes = require('./routes/radio.routes');
@@ -76,10 +74,8 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-app.use('/api/auth', authRoutes);
+app.use('/api/session', sessionRoutes);
 app.use('/api/tracks', tracksRoutes);
-app.use('/api/favorites', favoritesRoutes);
-app.use('/api/playlists', playlistsRoutes);
 app.use('/api/stream', streamRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api/radio', radioRoutes);

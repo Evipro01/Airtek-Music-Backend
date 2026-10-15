@@ -1,3 +1,4 @@
+const supabaseAdmin = require('../services/supabaseAdmin');
 const tracksService = require('../services/tracks.service');
 const { HttpError } = require('../utils/http');
 
@@ -12,7 +13,7 @@ async function getTrack(req, res) {
   const { id_externo } = req.params;
   tracksService.assertTrackId(id_externo);
 
-  const { data, error } = await req.supabase
+  const { data, error } = await supabaseAdmin
     .from('pistas')
     .select('*')
     .eq('id_externo', id_externo)

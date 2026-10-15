@@ -1,12 +1,11 @@
 const express = require('express');
-const requireAuth = require('../middlewares/requireAuth');
+const requireSession = require('../middlewares/requireSession');
 const { upsertTrack, getTrack } = require('../controllers/tracks.controller');
 
 const router = express.Router();
 
-router.use(requireAuth);
-
-router.post('/', upsertTrack);
+// Leer el catálogo es público; escribir en la tabla `pistas` sigue necesitando sesión
+router.post('/', requireSession, upsertTrack);
 router.get('/:id_externo', getTrack);
 
 module.exports = router;
