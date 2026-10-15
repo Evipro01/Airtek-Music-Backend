@@ -189,6 +189,25 @@ async function run() {
       return `${r.body.album.titulo}: ${r.body.album.pistas.length} pistas con audio`;
     });
 
+    // ── Asistente IA (sin llamar a n8n: cada pregunta real gasta Gemini) ──
+    await check('IA', 'POST /ia sin texto → 400', async () => {
+      const r = await api('POST', '/ia', { body: { prompt: '   ' } });
+      expectStatus(r, 400);
+      return r.body.error;
+    });
+    await check('IA', 'POST /ia con más de 300 caracteres → 400', async () => {
+      const r = await api('POST', '/ia', { body: { prompt: 'a'.repeat(301) } });
+      expectStatus(r, 400);
+      return r.body.error;
+    });
+    if (!process.env.N8N_IA_URL || !process.env.N8N_IA_HEADER || !process.env.N8N_IA_KEY) {
+      await check('IA', 'Sin variables de n8n → 503', async () => {
+        const r = await api('POST', '/ia', { body: { prompt: 'música para estudiar' } });
+        expectStatus(r, 503);
+        return r.body.error;
+      });
+    }
+
     // ── Administración ──────────────────────────────────────────────────────
     const adminKey = process.env.ADMIN_API_KEY ?? '';
     if (adminKey.length >= 16) {
